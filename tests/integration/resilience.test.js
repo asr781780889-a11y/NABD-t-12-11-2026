@@ -13,6 +13,8 @@ const send = (text, o = {}) => deliver(PHONE, msg(text, { tgMessageId: ++n, ...o
 const cards = async () => (await h.ok('GET', '/api/matches?limit=100')).data;
 const cardOf = (text) => waitFor(async () => (await cards()).find((c) => c.text === text), { timeout: 25000, label: `card "${text}"` });
 const nonce = () => `${++n}`;
+const canControlPostgres = () => pgCtl.controllable();
+const controlPostgres = (action) => pgCtl[action]();
 
 before(async () => {
   h = await startHarness(); svc2 = await startFakeServices(); await setupAdmin(h, 'admin', PW);
@@ -30,7 +32,7 @@ before(async () => {
   await h.ok('POST', '/api/radar', { ...d.data, confirm: true });
   await h.ok('POST', '/api/automations', { name: 'ai down', trigger: 'ai_failure', actions: [{ type: 'create_alert', title: 'AI down: {{payload.providers}}', severity: 'high' }] });
 });
-after(async () => { await svc2?.close(); await h.stop(); });
+after(async () => { if (h) await h.stop(); await svc2?.close(); });
 
 test('AI outage: failover to the fallback provider, then circuit breaker opens and skips the dead provider', async () => {
   h.svc.ai.mode = 'fail';
@@ -108,25 +110,34 @@ test('database capacity ladder: emergency mode pauses ingestion (never deletes),
   await waitFor(async () => (await h.ok('GET', '/api/system/database')).data.emergency_active === false, { timeout: 15000, label: 'emergency mode auto-clears' });
   const t2 = `احتاج مساعدة في مشروع التخرج ${nonce()}`; send(t2); await cardOf(t2);
 });
-test('Redis outage: clear warning, login still works, messages keep flowing through inline processing, full recovery', { skip: !redisCtl.available() && 'redis-cli not available' }, async () => {
-  redisCtl.stop(); await sleep(600);
-  const ready = await h.api('GET', '/ready'); assert.equal(ready.status, 200); assert.equal(ready.body.status, 'degraded'); assert.equal(ready.body.redis, false);
-  await waitFor(async () => (await h.ok('GET', '/api/system/status')).status.redis.status === 'offline', { label: 'redis offline in status' });
-  const q = await h.ok('GET', '/api/system/queues'); assert.equal(q.redis, false);
-  assert.equal((await h.api('POST', '/api/auth/login', { username: 'admin', password: PW })).status, 200, 'login keeps working (in-memory limiter fallback)');
-  const t = `احتاج مساعدة في مشروع التخرج ${nonce()}`; send(t); await cardOf(t);
-  redisCtl.start();
+test('Redis outage: clear warning, login still works, messages keep flowing through inline processing, full recovery', { skip: !redisCtl.available() ? 'redis-cli not available' : !redisCtl.controllable() ? 'cannot control managed Redis service' : false }, async () => {
+  const stopped = redisCtl.stop(); assert.equal(stopped.status, 0, stopped.stderr || 'failed to stop Redis');
+  try {
+    const ready = await waitFor(async () => { const r = await h.api('GET', '/ready'); return r.body?.redis === false ? r : null; }, { timeout: 12000, label: 'Redis outage reflected in readiness' });
+    assert.equal(ready.status, 200); assert.equal(ready.body.status, 'degraded'); assert.equal(ready.body.redis, false);
+    await waitFor(async () => (await h.ok('GET', '/api/system/status')).status.redis.status === 'offline', { label: 'redis offline in status' });
+    const q = await h.ok('GET', '/api/system/queues'); assert.equal(q.redis, false);
+    assert.equal((await h.api('POST', '/api/auth/login', { username: 'admin', password: PW })).status, 200, 'login keeps working (in-memory limiter fallback)');
+    const t = `احتاج مساعدة في مشروع التخرج ${nonce()}`; send(t); await cardOf(t);
+  } finally {
+    const started = redisCtl.start(); assert.equal(started.status, 0, started.stderr || 'failed to restart Redis');
+  }
   await waitFor(async () => (await h.api('GET', '/ready')).body.status === 'ready', { timeout: 30000, label: 'redis recovered' });
-  const t2 = `ابي احد يساعدني في مشروع التخرج ${nonce()}`; send(t2); await cardOf(t2);
+  const t2 = `ابي احد يساعدني بمشروع التخرج ${nonce()}`; send(t2); await cardOf(t2);
   assert.equal((await h.ok('GET', '/api/system/status')).status.redis.status, 'online');
 });
-test('PostgreSQL outage: API answers with a clear 503, Telegram worker stays alive and buffers, nothing is lost after recovery', { skip: !pgCtl.available() && 'pg_ctlcluster not available' }, async () => {
+test('PostgreSQL outage: API answers with a clear 503, Telegram worker stays alive and buffers, nothing is lost after recovery', { skip: !pgCtl.available() ? 'PostgreSQL cluster not available' : !canControlPostgres() ? 'cannot control PostgreSQL cluster' : false }, async () => {
   const t = `احتاج مساعدة في مشروع التخرج ${nonce()}`;
-  pgCtl.stop(); await sleep(800);
-  assert.equal((await h.api('GET', '/health')).status, 200); assert.equal((await h.api('GET', '/ready')).status, 503);
-  const r = await h.api('GET', '/api/matches'); assert.equal(r.status, 503); assert.equal(r.body.error.code, 'DB_UNAVAILABLE'); assert.ok(r.body.error.message_ar.includes('قاعدة البيانات'));
-  assert.equal(send(t), 1, 'telegram connection is still delivering updates'); await sleep(1500);
-  pgCtl.start();
+  const stopped = controlPostgres('stop'); assert.equal(stopped.status, 0, stopped.stderr || 'failed to stop PostgreSQL');
+  try {
+    assert.equal((await h.api('GET', '/health')).status, 200);
+    const ready = await waitFor(async () => { const r = await h.api('GET', '/ready'); return r.status === 503 ? r : null; }, { timeout: 10000, label: 'PostgreSQL outage readiness' });
+    assert.equal(ready.status, 503);
+    const r = await h.api('GET', '/api/matches'); assert.equal(r.status, 503); assert.equal(r.body.error.code, 'DB_UNAVAILABLE'); assert.ok(r.body.error.message_ar.includes('قاعدة البيانات'));
+    assert.equal(send(t), 1, 'telegram connection is still delivering updates'); await sleep(1500);
+  } finally {
+    const started = controlPostgres('start'); assert.equal(started.status, 0, started.stderr || 'failed to restart PostgreSQL');
+  }
   await waitFor(async () => (await h.api('GET', '/ready')).status === 200, { timeout: 30000, label: 'database back' });
   await cardOf(t);
   await waitFor(async () => (await h.ok('GET', '/api/system/workers')).process_online, { timeout: 20000, label: 'workers heartbeat resumes' });

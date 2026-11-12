@@ -107,6 +107,10 @@ test('Smart Radar: AI draft -> operator confirms -> active', async () => {
 
 test('pipeline: keyword hit, semantic (AI) hit, ignored noise, blocked user, unmonitored source, live WebSocket', async () => {
   const live = h.openWs(); await live.ready;
+  // The preceding sync test deliberately enables all groups; restore this test's
+  // unmonitored-source fixture before sending a message to ADS.
+  const ads = (await h.ok('GET', `/api/sources?account_id=${acc1}`)).data.find((s) => s.tg_chat_id === ADS);
+  await h.ok('PATCH', `/api/sources/${ads.id}`, { monitoring_enabled: false });
   const exact = 'السلام عليكم احتاج مساعدة في مشروع التخرج';
   const semantic = 'مين يقدر يساعدني بمشروع التخرج';
   await h.ok('POST', '/api/blocks/users', { tg_user_id: 999, username: 'spammer' });
@@ -176,7 +180,7 @@ test('feedback, pin/ignore, save + export, block user/source from a card, search
   const csv = await h.api('GET', '/api/export/saved?format=csv'); assert.ok(csv.text.includes('follow up') && csv.buf.subarray(0, 3).equals(Buffer.from([0xef, 0xbb, 0xbf])), 'CSV must carry a UTF-8 BOM so Excel renders Arabic');
   const xl = await h.api('GET', '/api/export/matches?format=xlsx'); assert.equal(xl.status, 200); assert.equal(xl.buf.subarray(0, 2).toString(), 'PK');
   assert.ok(Array.isArray(JSON.parse((await h.api('GET', '/api/export/matches?format=json')).text)));
-  assert.ok((await h.api('GET', '/api/export/matches?format=pdf')).text.includes('window.print') === false && (await h.api('GET', '/api/export/matches?format=pdf')).text.includes('<table'));
+  const pdf = await h.api('GET', '/api/export/matches?format=pdf'); assert.equal(pdf.status, 200, pdf.text); assert.match(pdf.headers.get('content-type') || '', /application\/pdf/); assert.equal(pdf.buf.subarray(0, 5).toString(), '%PDF-'); assert.equal(pdf.buf.toString('utf8').includes('window.print'), false);
   await h.ok('POST', `/api/matches/${id}/block-user`); const after = await cards(); assert.ok(!after.some((c) => c.sender.id === S.c2.sender.id), 'blocking hides existing cards at query time too');
   const blocks = await h.ok('GET', '/api/blocks'); assert.ok(blocks.users.some((u) => u.tg_user_id === S.c2.sender.id));
   await h.ok('POST', `/api/matches/${S.c1.id}/block-source`); assert.equal((await cards()).filter((c) => c.source.tg_chat_id === HUB).length, 0, 'blocked group results disappear');

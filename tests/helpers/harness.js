@@ -57,13 +57,44 @@ export async function setupAdmin(h, username = 'admin', password = 'Passw0rd-Str
 
 import { spawnSync } from 'node:child_process';
 export const sh = (cmd, args) => spawnSync(cmd, args, { encoding: 'utf8' });
+const systemdUnitLoaded = (unit) => {
+  if (!unit) return false;
+  const result = sh('systemctl', ['show', unit, '-p', 'LoadState']);
+  return result.status === 0 && result.stdout.includes('LoadState=loaded');
+};
+const nonInteractiveSudo = () => sh('sudo', ['-n', 'true']).status === 0;
+const localUser = sh('id', ['-un']).stdout?.trim();
+const hasServiceControl = () => localUser === 'root' || localUser === 'postgres' || nonInteractiveSudo();
 export const redisCtl = {
   available: () => sh('redis-cli', ['ping']).stdout?.trim() === 'PONG',
-  stop: () => sh('redis-cli', ['shutdown', 'nosave']),
-  start: () => sh('redis-server', ['--daemonize', 'yes', '--port', '6379', '--save', '', '--appendonly', 'no']),
+  controllable: () => !systemdUnitLoaded('redis-server') || nonInteractiveSudo(),
+  stop: () => systemdUnitLoaded('redis-server') ? sh('sudo', ['-n', 'systemctl', 'stop', 'redis-server']) : sh('redis-cli', ['shutdown', 'nosave']),
+  start: () => systemdUnitLoaded('redis-server') ? sh('sudo', ['-n', 'systemctl', 'start', 'redis-server']) : sh('redis-server', ['--daemonize', 'yes', '--port', '6379', '--save', '', '--appendonly', 'no']),
+};
+const postgresCluster = () => {
+  const result = sh('pg_lsclusters', []);
+  if (result.status !== 0) return null;
+  const rows = result.stdout.split(/\r?\n/).slice(1).map((line) => line.trim().split(/\s+/)).filter((row) => row.length >= 4 && /^\d+$/.test(row[0]));
+  const row = rows.find((item) => item[3] === 'online') || rows[0];
+  return row ? { version: row[0], name: row[1], status: row[3] } : null;
+};
+const postgresUnit = (cluster) => cluster ? `postgresql@${cluster.version}-${cluster.name}` : null;
+const controlPostgres = (action) => {
+  const cluster = postgresCluster();
+  if (!cluster) return { status: 1, stdout: '', stderr: 'PostgreSQL cluster not available' };
+  const unit = postgresUnit(cluster);
+  if (systemdUnitLoaded(unit)) {
+    if (localUser === 'root') return sh('systemctl', [action, unit]);
+    if (nonInteractiveSudo()) return sh('sudo', ['-n', 'systemctl', action, unit]);
+  }
+  const args = [cluster.version, cluster.name, action, ...(action === 'stop' ? ['-m', 'fast'] : [])];
+  if (localUser === 'root' || localUser === 'postgres') return sh('pg_ctlcluster', args);
+  if (nonInteractiveSudo()) return sh('sudo', ['-n', 'pg_ctlcluster', ...args]);
+  return { status: 1, stdout: '', stderr: 'cannot control PostgreSQL cluster' };
 };
 export const pgCtl = {
-  available: () => sh('pg_lsclusters', []).status === 0 && /online/.test(sh('pg_lsclusters', []).stdout),
-  stop: () => sh('pg_ctlcluster', ['16', 'main', 'stop', '-m', 'fast']),
-  start: () => sh('pg_ctlcluster', ['16', 'main', 'start']),
+  available: () => postgresCluster()?.status === 'online',
+  controllable: () => Boolean(postgresCluster() && hasServiceControl()),
+  stop: () => controlPostgres('stop'),
+  start: () => controlPostgres('start'),
 };

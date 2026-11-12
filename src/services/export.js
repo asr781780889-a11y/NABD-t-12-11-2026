@@ -47,7 +47,8 @@ export function toHTML(title, columns, rows, lang = 'ar') {
 <table><thead><tr>${columns.map((c) => `<th>${esc(c.label ?? c.key)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${columns.map((c) => `<td>${esc(cellText(r[c.key]))}</td>`).join('')}</tr>`).join('')}</tbody></table><script src="/js/print.js"></script></body></html>`;
 }
 function runChromium(htmlFile, pdfFile) {
-  const binary = process.env.CHROMIUM_BIN || '/usr/bin/chromium-headless-shell';
+  const candidates = ['/usr/bin/chromium-headless-shell', '/usr/bin/chromium', '/usr/bin/chromium-browser'];
+  const binary = process.env.CHROMIUM_BIN || candidates.find((candidate) => fs.existsSync(candidate)) || candidates[0];
   const args = ['--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--disable-background-networking', '--no-first-run', '--no-default-browser-check', '--no-pdf-header-footer', `--print-to-pdf=${pdfFile}`, pathToFileURL(htmlFile).href];
   return new Promise((resolve, reject) => {
     const child = spawn(binary, args, { stdio: ['ignore', 'ignore', 'pipe'] });

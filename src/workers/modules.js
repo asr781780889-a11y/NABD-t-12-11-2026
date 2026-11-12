@@ -89,12 +89,19 @@ export function cleanupModule() {
 
 const LEVEL_SEV = { warning: 'low', high_risk: 'medium', critical: 'high', emergency_prep: 'critical', emergency: 'critical' };
 async function leader(name, fn) {
-  const c = await pool.connect();
+  let c = null; let broken = false;
+  const onError = () => { broken = true; };
   try {
+    c = await pool.connect(); c.on('error', onError);
     const { rows } = await c.query('SELECT pg_try_advisory_lock(hashtext($1)) AS ok', [`nabd:${name}`]);
     if (rows[0]?.ok) await fn();
   } catch (e) { log.warn(`scheduler job ${name} failed`, { err: e.message }); }
-  finally { try { await c.query('SELECT pg_advisory_unlock(hashtext($1))', [`nabd:${name}`]); } catch { /* ignore */ } c.release(); }
+  finally {
+    if (c) {
+      if (!broken) try { await c.query('SELECT pg_advisory_unlock(hashtext($1))', [`nabd:${name}`]); } catch { /* ignore */ }
+      c.off('error', onError); c.release(broken);
+    }
+  }
 }
 
 export function schedulerModule() {

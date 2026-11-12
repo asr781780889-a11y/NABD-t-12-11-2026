@@ -2,7 +2,7 @@
 import crypto from 'node:crypto';
 
 export class AppError extends Error {
-  constructor(code, { status = 400, details, cause, message } = {}) {
+  constructor(code, { status = code === 'INTERNAL' ? 500 : 400, details, cause, message } = {}) {
     super(message || code);
     this.name = 'AppError';
     this.code = code;
