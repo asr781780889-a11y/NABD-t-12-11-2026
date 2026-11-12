@@ -175,12 +175,12 @@ const flat = (c) => ({ id: c.id, created_at: c.created_at, sent_at: c.sent_at, s
 r.get('/export/matches', need('viewer'), h(async (req, res) => {
   const { cards } = await listMatches(req.query, { limit: MAX_EXPORT_ROWS, offset: 0 });
   await req.audit('EXPORT_MATCHES', { details: { format: req.query.format, rows: cards.length } });
-  sendExport(res, { format: req.query.format, name: 'nabd-matches', title: 'NABD AI — Matches', columns: MATCH_COLS, rows: cards.map(flat), lang: req.query.lang });
+  await sendExport(res, { format: req.query.format, name: 'nabd-matches', title: 'NABD AI — Matches', columns: MATCH_COLS, rows: cards.map(flat), lang: req.query.lang });
 }));
 r.get('/export/saved', need('viewer'), h(async (req, res) => {
   const w = savedWhere(req.query); const rows = await many(`SELECT ${SAVED_COLS} FROM saved_results WHERE ${w.sql} ORDER BY created_at DESC LIMIT ${MAX_EXPORT_ROWS}`, w.v);
   await req.audit('EXPORT_SAVED', { details: { format: req.query.format, rows: rows.length } });
-  sendExport(res, { format: req.query.format, name: 'nabd-saved', title: 'NABD AI — Saved results', lang: req.query.lang, rows,
+  await sendExport(res, { format: req.query.format, name: 'nabd-saved', title: 'NABD AI — Saved results', lang: req.query.lang, rows,
     columns: ['id', 'created_at', 'source_title', 'sender_username', 'sender_id', 'message_text', 'message_at', 'rule_name', 'intent', 'score', 'priority', 'notes', 'tags'].map((key) => ({ key })) });
 }));
 

@@ -1,13 +1,13 @@
 # NABD AI backend / worker image (the same image runs both: `node src/server.js` and `node src/worker.js`).
-FROM node:22-alpine
-RUN apk add --no-cache postgresql16-client tini
+FROM node:22-alpine3.23
+RUN apk add --no-cache postgresql18-client chromium-headless-shell font-noto-naskh-arabic tini
 WORKDIR /app
 COPY package.json package-lock.json .npmrc ./
 RUN npm ci --omit=dev
 COPY src ./src
 COPY scripts ./scripts
 COPY public ./public
-ENV NODE_ENV=production HOST=0.0.0.0 PORT=8080 DATA_DIR=/data
+ENV NODE_ENV=production HOST=0.0.0.0 PORT=8080 DATA_DIR=/data CHROMIUM_BIN=/usr/bin/chromium-headless-shell
 RUN mkdir -p /data && chown -R node:node /data /app
 USER node
 EXPOSE 8080

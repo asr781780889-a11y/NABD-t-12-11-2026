@@ -41,7 +41,7 @@ export function deliver(phone, msg) {
 export const dropConnection = (phone) => { for (const a of [...world.live]) if (a.phone === phone) { a.connected = false; world.live.delete(a); } };
 
 export async function startFakeServices() {
-  const st = { ai: { mode: 'ok', calls: 0, drafts: 0, lastUser: '' }, bot: { sent: [] } };
+  const st = { ai: { mode: 'ok', calls: 0, drafts: 0, lastUser: '', forceMatch: null, categoryOverride: null }, bot: { sent: [] } };
   const server = http.createServer(async (req, res) => {
     let raw = ''; for await (const c of req) raw += c;
     const json = (code, o) => { res.writeHead(code, { 'content-type': 'application/json' }); res.end(JSON.stringify(o)); };
@@ -58,8 +58,14 @@ export async function startFakeServices() {
     else if (system.includes('{"ok":true}')) content = '{"ok":true}';
     else {
       const m = /<message>\n([\s\S]*?)\n<\/message>/.exec(user)?.[1] ?? '';
-      const isMatch = /تخرج|graduation/i.test(m) && /(مساعد|ساعد|احتاج|محتاج|ابي|اريد|يقدر|help)/.test(m) && !/نقدم|نوفر|we offer/.test(m);
-      content = JSON.stringify({ match: isMatch, confidence: isMatch ? 92 : 90, intent: 'Graduation Help', category: isMatch ? 'request' : 'other', priority: 'high', entities: [{ type: 'topic', value: 'graduation project' }], reason: isMatch ? 'الرسالة تطلب مساعدة في مشروع تخرج' : 'لا علاقة بمشروع التخرج', suggested_keywords: isMatch ? ['مين يقدر يساعدني بمشروع التخرج'] : [], summary: '' });
+      const detected = /تخرج|graduation/i.test(m) && /(مساعد|ساعد|احتاج|محتاج|ابي|اريد|يقدر|help)/.test(m) && !/نقدم|نوفر|we offer/.test(m);
+      const isMatch = st.ai.forceMatch ?? detected;
+      const serviceRequest = user.includes('Service-request classification:');
+      const category = serviceRequest ? (st.ai.categoryOverride ?? (isMatch ? 'خدمات طلابية وجامعية' : '')) : (isMatch ? 'request' : 'other');
+      const entities = serviceRequest && isMatch
+        ? [{ type: 'service_type', value: 'تصميم واجهات' }, { type: 'subcategory', value: 'تصميم مواقع' }, { type: 'topic', value: 'web interface' }]
+        : [{ type: 'topic', value: 'graduation project' }];
+      content = JSON.stringify({ match: isMatch, confidence: isMatch ? 92 : 90, intent: serviceRequest ? (isMatch ? 'طلب تصميم واجهات' : '') : 'Graduation Help', category, priority: 'high', entities, reason: isMatch ? 'الرسالة تطلب مساعدة في مشروع تخرج' : 'لا علاقة بمشروع التخرج', suggested_keywords: isMatch ? ['مين يقدر يساعدني بمشروع التخرج'] : [], summary: serviceRequest && isMatch ? 'طلب تصميم واجهات لموقع الشركة' : '' });
     }
     return json(200, { choices: [{ message: { content } }], usage: { prompt_tokens: 40, completion_tokens: 25 } });
   });

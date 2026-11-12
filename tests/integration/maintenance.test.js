@@ -29,7 +29,7 @@ test('backups: config / rules / database are encrypted, contain no plaintext sec
     const plain = path.join(os.tmpdir(), `nabd-test-${kind}`); await decryptFile(file, plain); out[kind] = { plain, id: b.id };
   }
   const cfg = fs.readFileSync(out.config.plain, 'utf8'); assert.ok(cfg.includes('Backup Test') && cfg.includes('"omitted": true') && !cfg.includes('bot-super-secret') && !cfg.includes('sk-super-secret-key'));
-  const rules = JSON.parse(fs.readFileSync(out.rules.plain, 'utf8')); assert.equal(rules.radars[0].intent, 'I');
+  const rules = JSON.parse(fs.readFileSync(out.rules.plain, 'utf8')); assert.equal(rules.radars.find((r) => r.name === 'R')?.intent, 'I');
   const dump = fs.readFileSync(out.database.plain); assert.equal(dump.subarray(0, 5).toString(), 'PGDMP');
   const list = spawnSync('pg_restore', ['--list', out.database.plain], { encoding: 'utf8', env: pgEnv() }); assert.equal(list.status, 0, list.stderr); assert.ok(list.stdout.includes('message_matches') && list.stdout.includes('audit_logs'));
   const noPw = await h.api('GET', `/api/system/backups/${out.database.id}/download`); assert.equal(noPw.status, 401, 'download needs step-up auth');

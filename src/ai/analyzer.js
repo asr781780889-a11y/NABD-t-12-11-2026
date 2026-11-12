@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { complete } from './manager.js';
 import { ANALYZER_SYSTEM, analyzerUserPrompt } from './prompts.js';
 import { getSetting } from '../lib/settings.js';
+import { many } from '../lib/db.js';
 import { safeRedis } from '../lib/redis.js';
 import { AppError } from '../lib/errors.js';
 import { PRIORITIES } from '../engine/priority.js';
@@ -26,11 +27,15 @@ export function parseAiJson(text) {
 }
 
 export async function analyzeForRadar({ radar, text, normHash, sourceTitle, examples = [] }) {
-  const [maxChars, wantSummary, useIntent, useClass] = await Promise.all([getSetting('ai.max_chars'), getSetting('ai.summarization_enabled'), getSetting('ai.intent_enabled'), getSetting('ai.classification_enabled')]);
-  const key = `ai:v1:${radar.id}:${+new Date(radar.updated_at)}:${normHash}`;
+  const serviceRequest = radar.name?.startsWith('NABD Needs |');
+  const [maxChars, wantSummary, useIntent, useClass, categoryRows] = await Promise.all([
+    getSetting('ai.max_chars'), getSetting('ai.summarization_enabled'), getSetting('ai.intent_enabled'), getSetting('ai.classification_enabled'),
+    serviceRequest ? many('SELECT name FROM service_categories WHERE enabled = true ORDER BY id') : Promise.resolve([]),
+  ]);
+  const key = `ai:v2:${radar.id}:${+new Date(radar.updated_at)}:${normHash}`;
   const cached = normHash ? await safeRedis((r) => r.get(key)) : null;
   if (cached) { try { return { ...JSON.parse(cached), cached: true }; } catch { /* recompute */ } }
-  const user = analyzerUserPrompt({ radar, text: String(text).slice(0, maxChars), examples, sourceTitle, wantSummary });
+  const user = analyzerUserPrompt({ radar, text: String(text).slice(0, maxChars), examples, sourceTitle, wantSummary, serviceCategories: categoryRows.map((x) => x.name) });
   let parsed = null; let res = null; let lastErr = null;
   for (let attempt = 0; attempt < 2 && !parsed; attempt++) {
     res = await complete({ purpose: 'analyze', system: ANALYZER_SYSTEM, user, json: true, maxTokens: 400, temperature: 0 });

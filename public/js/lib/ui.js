@@ -143,7 +143,7 @@ const f_join = (fields, k) => (fields.find((f) => f.key === k)?.type === 'lines'
 export function exportMenu(path, params = {}) {
   const q = (fmt2) => `/api${path}?${new URLSearchParams({ ...params, format: fmt2, lang: document.documentElement.lang })}`;
   return h('div', { class: 'row tight' }, h('span', { class: 'muted sm' }, icon('download', 15)),
-    [['CSV', 'csv'], ['JSON', 'json'], [t('Excel'), 'xlsx'], [t('PDF (print)'), 'pdf']].map(([l, f2]) => h('a', { class: 'btn sm', href: q(f2), target: f2 === 'pdf' ? '_blank' : '_self', rel: 'noopener', download: f2 === 'pdf' ? null : '' }, l)));
+    [['CSV', 'csv'], ['JSON', 'json'], [t('Excel'), 'xlsx'], ['PDF', 'pdf']].map(([l, f2]) => h('a', { class: 'btn sm', href: q(f2), target: f2 === 'pdf' ? '_blank' : '_self', rel: 'noopener', download: f2 === 'pdf' ? null : '' }, l)));
 }
 export function highlight(text, needle) {
   if (!needle || needle.length < 2) return text;

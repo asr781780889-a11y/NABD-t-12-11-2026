@@ -7,13 +7,13 @@ import { toast, showError, errorBox, skeletons, can, statusDot, confirmBox, btn 
 import { browserNotify, beep, isMuted, setMuted } from './lib/notify.js';
 
 const NAV = [
-  ['Operations', [['/', 'Dashboard', 'home'], ['/feed', 'Live Feed', 'activity'], ['/needs', 'Service Needs', 'sparkles'], ['/accounts', 'Telegram Accounts', 'users'], ['/sources', 'Sources', 'layers']]],
+  ['Operations', [['/', 'Dashboard', 'home'], ['/feed', 'Live Feed', 'activity'], ['/needs', 'Service Needs', 'sparkles'], ['/needs-settings', 'Needs Settings', 'settings', 'admin'], ['/accounts', 'Telegram Accounts', 'users'], ['/sources', 'Sources', 'layers']]],
   ['Intelligence', [['/radar', 'Smart Radar', 'radar'], ['/keywords', 'Keywords', 'tag'], ['/rules', 'Rules', 'sliders'], ['/automations', 'Automation', 'zap'], ['/ai', 'AI Settings', 'cpu', 'operator']]],
   ['Insights', [['/search', 'Search', 'search'], ['/saved', 'Saved', 'bookmark'], ['/analytics', 'Analytics', 'chart'], ['/reports', 'Reports', 'file'], ['/alerts', 'Alerts', 'bell'], ['/blocks', 'Blocks', 'ban']]],
   ['Administration', [['/tasks', 'Tasks', 'list'], ['/system', 'System', 'server'], ['/logs', 'Logs', 'terminal', 'operator'], ['/settings', 'Settings', 'settings']]],
 ];
 const PAGES = {
-  '/': () => import('./pages/dashboard.js'), '/feed': () => import('./pages/feed.js'), '/needs': () => import('./pages/needs.js'), '/accounts': () => import('./pages/accounts.js'), '/sources': () => import('./pages/sources.js'),
+  '/': () => import('./pages/dashboard.js'), '/feed': () => import('./pages/feed.js'), '/needs': () => import('./pages/needs.js'), '/needs-settings': () => import('./pages/needs-settings.js'), '/accounts': () => import('./pages/accounts.js'), '/sources': () => import('./pages/sources.js'),
   '/radar': () => import('./pages/radar.js'), '/keywords': () => import('./pages/keywords.js'), '/rules': () => import('./pages/rules.js'), '/automations': () => import('./pages/automations.js'),
   '/ai': () => import('./pages/ai.js'), '/search': () => import('./pages/search.js'), '/saved': () => import('./pages/saved.js'), '/analytics': () => import('./pages/analytics.js'),
   '/reports': () => import('./pages/reports.js'), '/alerts': () => import('./pages/alerts.js'), '/blocks': () => import('./pages/blocks.js'), '/tasks': () => import('./pages/tasks.js'),

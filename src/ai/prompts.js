@@ -15,11 +15,13 @@ Rules:
 const clip = (s, n) => (String(s ?? '').length > n ? `${String(s).slice(0, n)}…` : String(s ?? ''));
 const list = (a, n) => (a ?? []).slice(0, n).map((x) => `- ${clip(x, 120)}`).join('\n');
 
-export function analyzerUserPrompt({ radar, text, examples = [], sourceTitle, wantSummary }) {
+export function analyzerUserPrompt({ radar, text, examples = [], sourceTitle, wantSummary, serviceCategories = [] }) {
   const pos = examples.filter((e) => e.label === 'positive'); const neg = examples.filter((e) => e.label === 'negative');
+  const serviceRequest = radar.name?.startsWith('NABD Needs |');
   return [
     `Target intent: ${radar.intent}`,
     radar.intent_description ? `Definition: ${clip(radar.intent_description, 400)}` : (radar.description ? `Definition: ${clip(radar.description, 400)}` : ''),
+    serviceRequest ? `Service-request classification: when match=true, category must be exactly one of: ${serviceCategories.map((x) => `«${clip(x, 80)}»`).join(', ')}. Infer the best domain from the full meaning and context, not from one keyword. Distinguish a person seeking help/service from a provider advertising services or ordinary conversation. If match=false, set category to "". If clear, add entities with type "service_type" and "subcategory" for the requested service and narrower area.` : '',
     radar.signals?.length ? `Example phrases that usually match:\n${list(radar.signals, 12)}` : '',
     radar.negative_signals?.length ? `Look-alikes that must NOT match:\n${list(radar.negative_signals, 8)}` : '',
     pos.length || neg.length ? `Operator-reviewed examples:\n${[...pos.map((e) => `- [MATCH] ${clip(e.text, 200)}`), ...neg.map((e) => `- [NOT MATCH] ${clip(e.text, 200)}`)].join('\n')}` : '',

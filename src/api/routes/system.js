@@ -112,7 +112,7 @@ r.get('/system/audit', need('admin'), h(async (req, res) => {
 }));
 r.get('/export/audit', need('admin'), h(async (req, res) => {
   const w = auditWhere(req.query); const rows = await many(`SELECT * FROM audit_logs WHERE ${w.sql} ORDER BY id DESC LIMIT ${MAX_EXPORT_ROWS}`, w.v);
-  sendExport(res, { format: req.query.format, name: 'nabd-audit', title: 'NABD AI — Audit log', lang: req.query.lang, rows, columns: ['id', 'created_at', 'username', 'action', 'entity', 'entity_id', 'result', 'ip', 'request_id', 'details'].map((key) => ({ key })) });
+  await sendExport(res, { format: req.query.format, name: 'nabd-audit', title: 'NABD AI — Audit log', lang: req.query.lang, rows, columns: ['id', 'created_at', 'username', 'action', 'entity', 'entity_id', 'result', 'ip', 'request_id', 'details'].map((key) => ({ key })) });
 }));
 
 /* ---------- backups ---------- */
@@ -178,7 +178,7 @@ r.get('/reports/run', need('viewer'), h(async (req, res) => { const rep = await 
 r.get('/export/report', need('viewer'), h(async (req, res) => {
   const rep = await buildReport(req.query); await req.audit('EXPORT_REPORT', { details: { format: req.query.format, rows: rep.cards.length } });
   const cols = ['id', 'created_at', 'score', 'match_type', 'priority', 'intent', 'keyword', 'source', 'account', 'sender_username', 'sender_id', 'text'].map((key) => ({ key }));
-  sendExport(res, { format: req.query.format, name: 'nabd-report', title: 'NABD AI — Report', lang: req.query.lang, columns: cols,
+  await sendExport(res, { format: req.query.format, name: 'nabd-report', title: 'NABD AI — Report', lang: req.query.lang, columns: cols,
     rows: rep.cards.map((c) => ({ id: c.id, created_at: c.created_at, score: c.score, match_type: c.match_type, priority: c.priority, intent: c.intent, keyword: c.keyword, source: c.source.title, account: c.account.name, sender_username: c.sender.username, sender_id: c.sender.id, text: c.text })) });
 }));
 r.get('/reports', need('viewer'), h(async (req, res) => res.json({ data: await many('SELECT * FROM reports ORDER BY id DESC LIMIT 100') })));

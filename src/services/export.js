@@ -1,7 +1,16 @@
-// CSV / JSON / XLSX (minimal OOXML writer) / printable HTML (browser "Save as PDF" - handles Arabic shaping natively).
+// CSV / JSON / XLSX / true PDF. PDF generation uses Chromium for correct Arabic shaping and RTL.
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+import { spawn } from 'node:child_process';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { zipSync, strToU8 } from 'fflate';
+import { AppError } from '../lib/errors.js';
 
 export const MAX_EXPORT_ROWS = 50000;
+export const MAX_PDF_ROWS = 5000;
+const ROOT = fileURLToPath(new URL('../../', import.meta.url));
+const PRINT_CSS = fs.readFileSync(path.join(ROOT, 'public/css/print.css'), 'utf8');
 const cellText = (v) => (v == null ? '' : v instanceof Date ? v.toISOString() : Array.isArray(v) ? v.join('; ') : typeof v === 'object' ? JSON.stringify(v) : String(v));
 const esc = (s) => String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
 const xmlSafe = (s) => String(s).replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '');
@@ -37,10 +46,39 @@ export function toHTML(title, columns, rows, lang = 'ar') {
 <header><h1>${esc(title)}</h1><p>${new Date().toISOString().slice(0, 16).replace('T', ' ')} · ${rows.length} rows</p><button id="p">${rtl ? 'طباعة / حفظ PDF' : 'Print / Save as PDF'}</button></header>
 <table><thead><tr>${columns.map((c) => `<th>${esc(c.label ?? c.key)}</th>`).join('')}</tr></thead><tbody>${rows.map((r) => `<tr>${columns.map((c) => `<td>${esc(cellText(r[c.key]))}</td>`).join('')}</tr>`).join('')}</tbody></table><script src="/js/print.js"></script></body></html>`;
 }
-export function sendExport(res, { format = 'csv', name, columns, rows, lang = 'ar', title }) {
+function runChromium(htmlFile, pdfFile) {
+  const binary = process.env.CHROMIUM_BIN || '/usr/bin/chromium-headless-shell';
+  const args = ['--headless', '--no-sandbox', '--disable-gpu', '--disable-dev-shm-usage', '--disable-background-networking', '--no-first-run', '--no-default-browser-check', '--no-pdf-header-footer', `--print-to-pdf=${pdfFile}`, pathToFileURL(htmlFile).href];
+  return new Promise((resolve, reject) => {
+    const child = spawn(binary, args, { stdio: ['ignore', 'ignore', 'pipe'] });
+    let err = ''; const timer = setTimeout(() => child.kill('SIGKILL'), 45000);
+    child.stderr.on('data', (b) => { if (err.length < 3000) err += b.toString(); });
+    child.once('error', (e) => { clearTimeout(timer); reject(new AppError('INTERNAL', { message: `PDF renderer unavailable: ${e.message}` })); });
+    child.once('close', (code) => {
+      clearTimeout(timer);
+      if (code !== 0) return reject(new AppError('INTERNAL', { message: `PDF renderer failed: ${err.slice(-500)}` }));
+      try { const pdf = fs.readFileSync(pdfFile); if (!pdf.subarray(0, 5).equals(Buffer.from('%PDF-'))) throw new Error('invalid PDF signature'); resolve(pdf); }
+      catch (e) { reject(new AppError('INTERNAL', { message: `PDF output is invalid: ${e.message}` })); }
+    });
+  });
+}
+export async function toPDF(title, columns, rows, lang = 'ar') {
+  if (rows.length > MAX_PDF_ROWS) throw new AppError('VALIDATION', { status: 413, message: `PDF export is limited to ${MAX_PDF_ROWS} rows; apply filters and try again.` });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'nabd-pdf-'));
+  const htmlFile = path.join(dir, 'report.html'); const pdfFile = path.join(dir, 'report.pdf');
+  try {
+    const html = toHTML(title, columns, rows, lang)
+      .replace('<link rel="stylesheet" href="/css/print.css">', `<style>${PRINT_CSS}\n@page{size:A4 landscape;margin:8mm}</style>`)
+      .replace('<script src="/js/print.js"></script>', '');
+    fs.writeFileSync(htmlFile, html, { mode: 0o600 });
+    return await runChromium(htmlFile, pdfFile);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
+export async function sendExport(res, { format = 'csv', name, columns, rows, lang = 'ar', title }) {
   const base = safeName(name); const fmt = ['csv', 'json', 'xlsx', 'html', 'pdf'].includes(format) ? format : 'csv';
-  if (fmt === 'json') { res.type('application/json').attachment(`${base}.json`).send(JSON.stringify(rows.map((r) => Object.fromEntries(columns.map((c) => [c.key, r[c.key]]))), null, 2)); }
-  else if (fmt === 'xlsx') { res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').attachment(`${base}.xlsx`).send(toXLSX(columns, rows, { sheet: title ?? name, rtl: lang === 'ar' })); }
-  else if (fmt === 'html' || fmt === 'pdf') { res.type('html').send(toHTML(title ?? name, columns, rows, lang)); }
-  else { res.type('text/csv; charset=utf-8').attachment(`${base}.csv`).send(toCSV(columns, rows)); }
+  if (fmt === 'json') res.type('application/json').attachment(`${base}.json`).send(JSON.stringify(rows.map((r) => Object.fromEntries(columns.map((c) => [c.key, r[c.key]]))), null, 2));
+  else if (fmt === 'xlsx') res.type('application/vnd.openxmlformats-officedocument.spreadsheetml.sheet').attachment(`${base}.xlsx`).send(toXLSX(columns, rows, { sheet: title ?? name, rtl: lang === 'ar' }));
+  else if (fmt === 'pdf') res.type('application/pdf').attachment(`${base}.pdf`).send(await toPDF(title ?? name, columns, rows, lang));
+  else if (fmt === 'html') res.type('html').send(toHTML(title ?? name, columns, rows, lang));
+  else res.type('text/csv; charset=utf-8').attachment(`${base}.csv`).send(toCSV(columns, rows));
 }

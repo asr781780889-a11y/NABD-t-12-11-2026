@@ -31,7 +31,7 @@ def hook(page, label):
 
 import traceback
 def run(p):
-        b = p.chromium.launch()
+        b = p.chromium.launch(executable_path=os.environ.get("PLAYWRIGHT_CHROMIUM") or None)
         ctx = b.new_context(viewport={"width": 1366, "height": 860}, locale="ar-SA")
         page = ctx.new_page(); hook(page, "wizard"); PAGE["p"] = page
         page.goto(BASE); page.wait_for_selector("text=إنشاء حساب المدير", timeout=15000)
@@ -90,8 +90,27 @@ def run(p):
         page.wait_for_selector("text=جديد", timeout=20000); print("paused feed buffers new cards: OK"); page.get_by_role("button", name=re.compile("استئناف")).click(); page.wait_for_timeout(500)
         print("feed OK; errors:", len(errors)); [print("  ", e) for e in errors]; errors.clear()
 
+        # Service-needs workflow: one synthetic Telegram request; no real account/network is used.
+        ctl("/deliver", {"phone": "+966500000001", "msg": {"chatId": HUB, "title": "Students Hub", "kind": "supergroup", "senderId": 450, "senderUsername": "needs_test", "senderName": "Needs Test", "text": "احتاج مدرسًا يساعدني في مشروع التخرج، هل يعرف أحد مدرس جيد؟"}})
+        page.goto(BASE + "/#/needs"); page.wait_for_selector(".need-card", timeout=25000); page.wait_for_timeout(500)
+        page.screenshot(path="/tmp/shots/16-needs-desktop.png")
+        need = page.locator(".need-card").first
+        need.locator("select").first.select_option("reviewing"); page.wait_for_timeout(400)
+        need.get_by_role("button", name="حفظ للمفضلة").click(); page.wait_for_timeout(400)
+        need.get_by_role("button", name="التفاصيل / الملاحظات").click(); page.wait_for_selector(".modal")
+        page.locator(".modal textarea").last.fill("ملاحظة متابعة تجريبية آمنة")
+        page.locator(".modal").get_by_role("button", name="إضافة ملاحظة").click(); page.get_by_text("ملاحظة متابعة تجريبية آمنة").wait_for(timeout=10000)
+        page.locator(".modal").get_by_role("button", name="إغلاق", exact=True).last.click()
+        page.locator(".need-card").first.get_by_role("button", name="أرشفة").click(); page.wait_for_timeout(400)
+        page.get_by_role("button", name="المؤرشفة").click(); page.wait_for_selector(".need-card")
+        page.locator(".need-card").first.get_by_role("button", name="استعادة").click(); page.wait_for_timeout(400)
+        page.get_by_role("button", name="عرض النشطة").click(); page.wait_for_selector(".need-card")
+        page.goto(BASE + "/#/needs-settings"); page.wait_for_selector(".checks", timeout=10000)
+        page.screenshot(path="/tmp/shots/17-needs-settings-desktop.png")
+        print("needs management/detail/note/archive/settings OK; errors:", len(errors)); [print("  ", e) for e in errors]; errors.clear()
+
         # every route (AR, desktop)
-        routes = ["/", "/feed", "/accounts", "/sources", "/radar", "/keywords", "/rules", "/automations", "/ai", "/search?q=التخرج", "/saved", "/analytics", "/reports", "/alerts", "/blocks", "/tasks", "/system", "/logs", "/settings", "/settings?tab=users", "/settings?tab=profile", "/settings?tab=appearance", "/settings?tab=notifications", "/setup"]
+        routes = ["/", "/feed", "/needs", "/needs-settings", "/accounts", "/sources", "/radar", "/keywords", "/rules", "/automations", "/ai", "/search?q=التخرج", "/saved", "/analytics", "/reports", "/alerts", "/blocks", "/tasks", "/system", "/logs", "/settings", "/settings?tab=users", "/settings?tab=profile", "/settings?tab=appearance", "/settings?tab=notifications", "/setup"]
         for r in routes:
             page.goto(BASE + "/#" + r); page.wait_for_selector(".page", timeout=10000); page.wait_for_timeout(900)
             txt = page.locator(".page").inner_text()
@@ -108,6 +127,8 @@ def run(p):
         m = b.new_context(viewport={"width": 390, "height": 800}, device_scale_factor=2, is_mobile=True, has_touch=True, locale="ar-SA", storage_state=ctx.storage_state()); mp = m.new_page(); hook(mp, "mobile")
         mp.goto(BASE + "/#/feed"); mp.wait_for_selector(".mc", timeout=15000); mp.wait_for_timeout(600); mp.screenshot(path="/tmp/shots/13-feed-mobile.png")
         mp.goto(BASE + "/#/"); mp.wait_for_selector(".kpi"); mp.wait_for_timeout(600); mp.screenshot(path="/tmp/shots/14-dashboard-mobile.png")
+        mp.goto(BASE + "/#/needs"); mp.wait_for_selector(".need-card", timeout=10000); mp.wait_for_timeout(500); mp.screenshot(path="/tmp/shots/18-needs-mobile.png")
+        needs_overflow = mp.evaluate("document.documentElement.scrollWidth > window.innerWidth + 2"); print("needs mobile horizontal overflow:", needs_overflow)
         mp.get_by_label("Menu").click(); mp.wait_for_timeout(400); mp.screenshot(path="/tmp/shots/15-menu-mobile.png")
         overflow = mp.evaluate("document.documentElement.scrollWidth > window.innerWidth + 2"); print("mobile horizontal overflow:", overflow)
         print("final errors:", len(errors)); [print("  ", e) for e in errors]
